@@ -1,0 +1,10 @@
+$kind: http-request
+name: get_claim_by_reference
+method: GET
+url: 'http://localhost:8080/api/v1/claims/reference/:reference'
+pathVariables:
+  - key: reference
+    value: REF-001
+    description: The unique reference number of the claim to retrieve
+headers:
+  Accept: application/json

@@ -1,0 +1,11 @@
+$kind: http-request
+name: get_all_claims
+method: GET
+url: 'http://localhost:8080/api/v1/claims?status=SUBMITTED'
+queryParams:
+  - key: status
+    value: SUBMITTED
+    description: 'Filter by claim status. Allowed values: SUBMITTED, ASSIGNED, UNDER_REVIEW, INFORMATION_REQUIRED, APPROVED, REJECTED, SETTLEMENT_IN_PROGRESS, SETTLED'
+    disabled: true
+headers:
+  Accept: application/json

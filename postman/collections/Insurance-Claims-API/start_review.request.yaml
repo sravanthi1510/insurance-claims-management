@@ -1,0 +1,17 @@
+$kind: http-request
+name: start_review
+method: POST
+url: 'http://localhost:8080/api/v1/claims/:id/review'
+pathVariables:
+  - key: id
+    value: '1'
+    description: The unique ID of the claim to start review for
+headers:
+  Content-Type: application/json
+  Accept: application/json
+body:
+  type: json
+  content: |-
+    {
+      "officer": "John Doe"
+    }

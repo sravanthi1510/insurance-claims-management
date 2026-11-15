@@ -1,0 +1,17 @@
+$kind: http-request
+name: submit_claim
+method: POST
+url: 'http://localhost:8080/api/v1/claims/submit'
+headers:
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "claimantName": "Jane Smith",
+      "claimantEmail": "jane.smith@example.com",
+      "market": "AU",
+      "incidentDate": "2026-11-01",
+      "incidentDescription": "Water damage to home due to burst pipe on the ground floor.",
+      "estimatedLoss": 12500.00
+    }

@@ -1,0 +1,17 @@
+$kind: http-request
+name: request_information
+method: POST
+url: 'http://localhost:8080/api/v1/claims/:id/information-requests'
+pathVariables:
+  - key: id
+    value: '1'
+    description: The unique ID of the claim to request information for
+headers:
+  Content-Type: application/json
+  Accept: application/json
+body:
+  type: json
+  content: |-
+    {
+      "reason": "Please provide additional documents to support your claim."
+    }
