@@ -2,20 +2,15 @@ package com.chubb.claims.claim.service.impl;
 
 import com.chubb.claims.claim.api.dto.SubmitClaimRequest;
 import com.chubb.claims.claim.domain.ClaimStatus;
-import com.chubb.claims.claim.domain.Market;
 import com.chubb.claims.claim.entity.Claim;
 import com.chubb.claims.claim.repository.ClaimRepository;
 import com.chubb.claims.claim.service.ClaimNotFoundException;
 import com.chubb.claims.claim.service.ClaimService;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 
-@Slf4j
 @Service
 public class ClaimServiceImpl implements ClaimService {
 
@@ -40,7 +35,6 @@ public class ClaimServiceImpl implements ClaimService {
 
     @Override
     public Claim getById(String id) {
-        log.info("Fetching claim with ID: {}", claimRepository.findById(id));
         return claimRepository.findById(id).orElseThrow(() -> new ClaimNotFoundException(id));
     }
 
@@ -53,15 +47,23 @@ public class ClaimServiceImpl implements ClaimService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Claim> list(ClaimStatus status) {
-        return status == null ? claimRepository.findAll() : claimRepository.findAllByStatus(status);
+    public List<Claim> listForCustomer(String email, ClaimStatus status) {
+        return status == null
+                ? claimRepository.findAllByClaimantEmailIgnoreCase(email)
+                : claimRepository.findAllByClaimantEmailIgnoreCaseAndStatus(email, status);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Claim> listForAgent(String officer) {
+        return claimRepository.findAssignedOrUnassignedSubmissions(officer, ClaimStatus.SUBMITTED);
     }
 
     @Override
     @Transactional
-    public Claim startReview(String id, String officer) {
+    public Claim startReview(String id, String officer, String officerEmail) {
         Claim claim = getById(id);
-        claim.startReview(officer);
+        claim.startReview(officer, officerEmail);
         return claimRepository.save(claim);
     }
 

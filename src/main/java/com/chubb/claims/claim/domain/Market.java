@@ -6,5 +6,6 @@ public enum Market {
     ID,
     MY,
     SG,
-    TH
+    TH,
+    IN
 }

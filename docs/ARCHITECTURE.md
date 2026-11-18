@@ -1,6 +1,6 @@
 # Architecture and workflows
 
-This document describes the application as currently implemented. It is a synchronous Spring Boot modular monolith; it does not currently use a message broker, separate microservices, or an external claims portal.
+This document describes the application as currently implemented. It is a synchronous Spring Boot modular monolith with a React customer/agent portal; it does not currently use a message broker or separate microservices.
 
 ## Technology stack
 
@@ -9,43 +9,127 @@ This document describes the application as currently implemented. It is a synchr
 | Language/runtime | Java 21 | Application and tests |
 | Application framework | Spring Boot 3.4.5 | Application lifecycle and dependency injection |
 | HTTP API | Spring MVC | Versioned REST endpoints under `/api/v1/claims` |
+| Authentication | Spring Security HTTP session | Role-aware customer/agent login; BCrypt password hashes |
+| Web portal | React 18, Vite | Customer submissions/tracking and agent queue/review actions |
 | Input validation | Jakarta Bean Validation | Validates request DTOs at the API boundary |
 | Persistence | Spring Data JPA / Hibernate | Repository abstraction and ORM mapping |
 | Runtime database | MySQL 8.4 | Local application persistence |
 | Test database | H2 in-memory | Isolated integration-test persistence |
-| Local secrets | LocalStack Secrets Manager | Supplies MySQL username/password during app startup |
 | Build and tests | Maven, Spring Boot Test, JUnit 5, Mockito | Build, unit, mock, and integration tests |
-| Local orchestration | Docker Compose | Starts MySQL and LocalStack |
+| Local orchestration | Docker Compose | Starts MySQL |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Client[HTTP client / Postman]
+    Browser[Customer or agent browser]
+    Portal[React portal<br/>Vite development server]
     subgraph App[Spring Boot application - modular monolith]
-        Controller[ClaimController\nREST endpoints + request validation]
-        Mapper[ClaimMapper\nEntity to response DTO]
-        Service[ClaimServiceImpl\nTransactional use cases]
-        Aggregate[Claim entity / aggregate\nLifecycle rules + 16-char ID]
-        Repository[ClaimRepository\nSpring Data JPA]
+        AuthController[AuthController]
+        AuthService[AuthService]
+        ClaimController[ClaimController]
+        ClaimService[ClaimServiceImpl]
+        Mapper[ClaimMapper]
+        Aggregate[Claim entity / aggregate]
+        ClaimRepository[ClaimRepository]
+        CustomerRepository[CustomerAccountRepository]
+        AgentRepository[AgentAccountRepository]
         Errors[Global exception handler\nHTTP error mapping]
-        Controller --> Service
-        Controller --> Mapper
-        Service --> Aggregate
-        Service --> Repository
-        Repository --> Aggregate
-        Controller -. errors .-> Errors
+        AuthController --> AuthService
+        ClaimController --> ClaimService
+        ClaimController --> Mapper
+        ClaimService --> Aggregate
+        ClaimService --> ClaimRepository
+        ClaimRepository --> Aggregate
+        AuthService --> CustomerRepository
+        AuthService --> AgentRepository
+        AuthController -. errors .-> Errors
+        ClaimController -. errors .-> Errors
     end
-    Database[(MySQL 8.4\nINSURANCE_CLAIM)]
-    Client -->|JSON over HTTP| Controller
-    Repository -->|JPA / JDBC| Database
-    Mapper -->|response DTO| Client
-
-    SecretStore[LocalStack Secrets Manager]
-    SecretStore -->|username + password at startup| App
+    MySQL[(MySQL 8.4 server)]
+    ClaimsDB[(insurance_claims_db<br/>claims)]
+    CustomerDB[(customer_db<br/>customer_db.app_user)]
+    AgentDB[(agent_db<br/>agent_db.app_user)]
+    Browser --> Portal
+    Portal -->|JSON requests and session cookie| AuthController
+    Portal -->|JSON requests and session cookie| ClaimController
+    Mapper -->|JSON response DTO| Portal
+    ClaimRepository --> ClaimsDB
+    CustomerRepository --> CustomerDB
+    AgentRepository --> AgentDB
+    ClaimsDB --- MySQL
+    CustomerDB --- MySQL
+    AgentDB --- MySQL
 ```
 
 The controller owns HTTP routing and request/response concerns. `ClaimServiceImpl` coordinates use cases and transaction boundaries. The `Claim` entity enforces lifecycle transitions. `ClaimRepository` is the persistence boundary, and `ClaimMapper` maps entities to API DTOs. The reference-tracking route returns a limited DTO that excludes claimant personal information.
+
+Customer and agent credentials are stored in separate MySQL databases on the same local MySQL server. `CustomerAccount` maps to the `customer_db` catalog and `AgentAccount` maps to the `agent_db` catalog; claims map to `insurance_claims_db`. The API authenticates with an HTTP session, hashes passwords with BCrypt, and checks roles and claim ownership on protected routes. Registration checks for the normalized email in both account repositories before saving to the selected role's database. Agent registration also checks the configured invitation code; set `AGENT_REGISTRATION_CODE` to a private value outside local development. Submissions in `SUBMITTED` status are available to agents, and taking one assigns it to the signed-in agent.
+
+
+Registration is intentionally global across both account stores: the same email cannot be registered once as a customer and again as an agent. The lookup is case-insensitive. Sign-in remains role-specific and only searches the database associated with the role selected on the sign-in form.
+
+## Claim request and response data flow
+
+```mermaid
+sequenceDiagram
+    actor User as Customer or claims agent
+    participant Portal as React portal
+    participant Security as Spring Security session and role checks
+    participant Controller as ClaimController
+    participant Service as ClaimServiceImpl
+    participant Entity as Claim entity
+    participant Repository as ClaimRepository
+    participant DB as insurance_claims_db
+    participant Handler as Global exception handler
+
+    User->>Portal: Submit claim or choose a claim action
+    Portal->>Security: Send JSON request with session cookie
+    Security->>Security: Verify session and required role
+    Security->>Controller: Authenticated request
+    Controller->>Controller: Validate input and claim ownership
+    Controller->>Service: Run requested use case
+    Service->>Repository: Load or save claim
+    Repository->>DB: SELECT / INSERT / UPDATE
+    DB-->>Repository: Claim record
+    Repository-->>Service: Claim entity
+    Service->>Entity: Apply allowed lifecycle transition
+    Entity-->>Service: Updated claim state
+    Service->>Repository: Save updated claim
+    Repository->>DB: UPDATE claim
+    DB-->>Repository: Persisted state
+    Service-->>Controller: Updated claim
+    Controller-->>Portal: JSON response DTO and status
+    Portal-->>User: Refresh claim details and status
+
+    alt Invalid input, missing claim, denied access, or invalid transition
+        Controller->>Handler: Propagate application exception
+        Handler-->>Portal: 400, 403, 404, or 409 API error
+    end
+```
+
+The browser sends the session cookie with each protected request. The controller derives the customer's email or agent identity from the authenticated principal instead of trusting a client-supplied identity. For claim details, customers can access claims associated with their account; agents can access assigned claims and eligible unassigned submissions. Reference lookups are authenticated and return the limited `ClaimTrackingResponse`.
+
+## Customer and agent portal workflow
+
+```mermaid
+flowchart LR
+    Portal[React portal] --> Login{Sign in or create account}
+    Login -->|Customer| CustomerAuth[customer_db]
+    Login -->|Agent + invitation code| AgentAuth[agent_db]
+    CustomerAuth --> CustomerUI[Customer workspace]
+    CustomerUI --> Submit[Submit claim]
+    Submit --> API[Spring Boot API]
+    API --> ClaimsDB[(insurance_claims_db)]
+    CustomerUI --> Track[View own claim status]
+    Track --> API
+    AgentAuth --> AgentUI[Agent workspace]
+    AgentUI --> Queue[Assigned claims + unassigned submissions]
+    Queue --> API
+    AgentUI --> Actions[Take claim, request info,\nsettle or reject]
+    Actions --> API
+    API --> ClaimsDB
+```
 
 ## Claim submission and lifecycle workflow
 
@@ -70,7 +154,7 @@ sequenceDiagram
     API-->>Client: 201 Created + Location + response DTO
 
     Client->>API: POST /{id}/review
-    API->>Service: startReview(id, officer)
+    API->>Service: startReview(id, authenticatedAgentName, authenticatedAgentEmail)
     Service->>Repo: load claim
     Repo->>Claim: SUBMITTED -> UNDER_REVIEW
     Service->>Repo: save(claim) [transaction]
@@ -111,22 +195,27 @@ Allowed transitions are `SUBMITTED -> UNDER_REVIEW -> INFORMATION_REQUIRED -> UN
 
 ```mermaid
 flowchart TD
-    Compose[ docker compose up --build -d --wait ] --> LS[LocalStack starts]
-    Compose --> MySQL[MySQL 8.4 starts\ninsurance_claims_db]
-    LS --> Secret[Create database credentials secret]
-    Secret --> Boot[Start Spring Boot application]
-    MySQL --> Boot
-    Boot --> Fetch[Environment post-processor retrieves secret]
-    Fetch --> DataSource[Configure MySQL datasource]
-    DataSource --> Ready[Serve REST API]
+    Compose[ docker compose up --build -d --wait ]
+    Compose --> MySQL[MySQL 8.4 starts\nclaims + customer + agent databases]
+    MySQL --> Boot[Start Spring Boot application]
+    Boot --> Ready[Serve REST API]
 
     Tests[mvn test] --> H2[H2 in-memory test database]
     H2 --> TestRun[Run isolated tests without Docker]
 ```
 
-The local credentials secret defaults to `insurance-claims/database` and contains non-blank `username` and `password` fields. Runtime overrides include `DB_USERNAME`, `DB_PASSWORD`, `DB_CREDENTIALS_SECRET_NAME`, `AWS_ENDPOINT_URL`, and `AWS_REGION`. The application fails startup if enabled secret retrieval or credential parsing fails; it does not silently substitute credentials. Tests disable secret retrieval and use an isolated H2 database.
+Docker Compose initializes MySQL and its three databases. The Spring Boot application creates the customer and agent account tables at startup. The React development server proxies API calls to the backend; run it separately with `npm run dev`.
 
 ## REST API
+
+Authentication endpoints are relative to `/api/v1/auth`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/register` | Register a customer or agent; duplicate email returns 409 |
+| `POST` | `/login` | Authenticate against the account store selected by role |
+| `GET` | `/session` | Return the current authenticated user's profile |
+| `POST` | `/logout` | Invalidate the current HTTP session |
 
 All paths are relative to `/api/v1/claims`.
 
@@ -135,12 +224,13 @@ All paths are relative to `/api/v1/claims`.
 | `POST` | `/submit` | Submit a claim; returns 201 and a `Location` header |
 | `GET` | `/` | List claims; optional `?status=UNDER_REVIEW` |
 | `GET` | `/{claimId}` | Retrieve a claim by internal ID |
-| `GET` | `/reference/{reference}` | Public claim tracking without claimant email |
-| `POST` | `/{id}/review` | Assign an officer and start review |
+| `GET` | `/reference/{reference}` | Authenticated reference lookup returning limited claim information |
+| `POST` | `/{id}/review` | Assign the signed-in agent and start review |
 | `POST` | `/{id}/information-requests` | Request additional information |
 | `POST` | `/{id}/additional-information` | Submit requested information |
 | `POST` | `/{id}/settlement` | Settle a reviewed claim |
 | `POST` | `/{id}/rejection` | Reject a reviewed claim |
+| `GET` | `/agent/queue` | List claims available to or assigned to the signed-in agent |
 
 ## Identifier and persistence notes
 
@@ -151,6 +241,13 @@ The internal `claimId` is the first 16 hexadecimal characters of a random UUID, 
 ```text
 src/main/java/com/chubb/claims/
   ClaimsApplication.java
+  auth/
+    controller/       # Registration, sign-in, session, and sign-out
+    domain/           # Account roles and authenticated principal
+    dto/              # Authentication request and response DTOs
+    entity/           # Customer and agent account mappings
+    repository/       # Role-specific Spring Data JPA repositories
+    service/          # Registration and authentication rules
   claim/
     controller/       # REST controller
     api/dto/          # Request and response DTOs
@@ -183,4 +280,4 @@ mvn spring-boot:run
 
 ## Current boundaries and follow-up architecture
 
-This is one deployable application and one relational database. Authentication/authorization, database migrations, audit history, pagination, production secret management, and market-specific policy rules are not currently implemented. Kafka or other asynchronous messaging and separately deployed services are intentionally outside the current design; they can be introduced when a concrete integration or scaling requirement exists.
+This is one deployable application and one MySQL server with three databases: claims, customer accounts, and agent accounts. Database migrations, audit history, pagination, production identity management, MFA, session hardening, and market-specific policy rules are not currently implemented. Kafka or other asynchronous messaging and separately deployed services are intentionally outside the current design; they can be introduced when a concrete integration or scaling requirement exists.

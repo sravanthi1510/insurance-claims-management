@@ -1,11 +1,14 @@
 package com.chubb.claims.exception;
 
+import com.chubb.claims.auth.service.InvalidCredentialsException;
+import com.chubb.claims.auth.service.AccountAlreadyExistsException;
 import com.chubb.claims.claim.service.ClaimNotFoundException;
 import com.chubb.claims.exception.dto.ApiError;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,6 +28,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidClaimTransitionException.class)
     public ResponseEntity<ApiError> handleInvalidTransition(
             InvalidClaimTransitionException exception,
+            HttpServletRequest request
+    ) {
+        return error(HttpStatus.CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(AccountAlreadyExistsException.class)
+    public ResponseEntity<ApiError> handleAccountAlreadyExists(
+            AccountAlreadyExistsException exception,
             HttpServletRequest request
     ) {
         return error(HttpStatus.CONFLICT, exception.getMessage(), request);
@@ -59,6 +70,22 @@ public class GlobalExceptionHandler {
                 exception.getMessage(),
                 request
         );
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiError> handleInvalidCredentials(
+            InvalidCredentialsException exception,
+            HttpServletRequest request
+    ) {
+        return error(HttpStatus.UNAUTHORIZED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiError> handleAccessDenied(
+            AccessDeniedException exception,
+            HttpServletRequest request
+    ) {
+        return error(HttpStatus.FORBIDDEN, exception.getMessage(), request);
     }
 
     private String formatFieldError(FieldError error) {

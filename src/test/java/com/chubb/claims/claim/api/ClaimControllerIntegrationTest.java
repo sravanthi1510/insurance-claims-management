@@ -13,6 +13,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -40,6 +41,7 @@ class ClaimControllerIntegrationTest {
                 """;
 
         MvcResult result = mockMvc.perform(post("/api/v1/claims/submit")
+                        .with(user("agent@example.com").roles("AGENT"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -53,6 +55,7 @@ class ClaimControllerIntegrationTest {
                 result.getResponse().getContentAsString(), "$.claimReference");
 
         MvcResult secondResult = mockMvc.perform(post("/api/v1/claims/submit")
+                        .with(user("agent@example.com").roles("AGENT"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -63,18 +66,17 @@ class ClaimControllerIntegrationTest {
         assertNotEquals(id, secondClaimId);
 
         mockMvc.perform(post("/api/v1/claims/{id}/review", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"officer": "Alex Officer"}
-                                """))
+                        .with(user("Alex Officer").roles("AGENT")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is(ClaimStatus.UNDER_REVIEW.name())));
 
-        mockMvc.perform(get("/api/v1/claims/{id}", id))
+        mockMvc.perform(get("/api/v1/claims/{id}", id)
+                        .with(user("Alex Officer").roles("AGENT")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.assignedOfficer", is("Alex Officer")));
 
-        mockMvc.perform(get("/api/v1/claims/reference/{reference}", claimReference))
+        mockMvc.perform(get("/api/v1/claims/reference/{reference}", claimReference)
+                        .with(user("Alex Officer").roles("AGENT")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status", is(ClaimStatus.UNDER_REVIEW.name())))
                 .andExpect(jsonPath("$.claimantEmail").doesNotExist());

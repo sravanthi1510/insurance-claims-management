@@ -2,11 +2,8 @@ package com.chubb.claims.claim.service;
 
 import com.chubb.claims.claim.api.dto.SubmitClaimRequest;
 import com.chubb.claims.claim.domain.ClaimStatus;
-import com.chubb.claims.claim.domain.Market;
 import com.chubb.claims.claim.entity.Claim;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 
 public interface ClaimService {
@@ -17,9 +14,11 @@ public interface ClaimService {
 
     Claim getByReference(String reference);
 
-    List<Claim> list(ClaimStatus status);
+    List<Claim> listForCustomer(String email, ClaimStatus status);
 
-    Claim startReview(String id, String officer);
+    List<Claim> listForAgent(String officer);
+
+    Claim startReview(String id, String officer, String officerEmail);
 
     Claim requestInformation(String id, String request);
 

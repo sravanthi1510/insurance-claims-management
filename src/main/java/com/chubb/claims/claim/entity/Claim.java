@@ -1,4 +1,3 @@
-
 package com.chubb.claims.claim.entity;
 
 import com.chubb.claims.claim.domain.ClaimStatus;
@@ -54,6 +53,9 @@ public class Claim {
 
     @Column(name = "ASSIGNED_OFFICER", length = 120)
     private String assignedOfficer;
+
+    @Column(name = "ASSIGNED_OFFICER_EMAIL", length = 254)
+    private String assignedOfficerEmail;
 
     @Column(name = "INFORMATION_REQUESTED", length = 2000)
     private String informationRequested;
@@ -116,8 +118,13 @@ public class Claim {
     }
 
     public void startReview(String officer) {
+        startReview(officer, null);
+    }
+
+    public void startReview(String officer, String officerEmail) {
         requireStatus(ClaimStatus.SUBMITTED, "start review");
         this.assignedOfficer = requireText(officer, "Assigned officer");
+        this.assignedOfficerEmail = officerEmail;
         this.status = ClaimStatus.UNDER_REVIEW;
     }
 
@@ -270,8 +277,16 @@ public class Claim {
         return assignedOfficer;
     }
 
+    public String getAssignedOfficerEmail() {
+        return assignedOfficerEmail;
+    }
+
     public void setAssignedOfficer(String assignedOfficer) {
         this.assignedOfficer = assignedOfficer;
+    }
+
+    public void setAssignedOfficerEmail(String assignedOfficerEmail) {
+        this.assignedOfficerEmail = assignedOfficerEmail;
     }
 
     public String getInformationRequested() {
